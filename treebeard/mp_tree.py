@@ -617,7 +617,7 @@ class MP_Node(Node):
         return MP_AddRootHandler(cls, **kwargs).process()
 
     @classmethod
-    def dump_bulk(cls, parent=None, keep_ids=True):
+    def dump_bulk(cls, parent=None, keep_ids=True, qset=None):
         """Dumps a tree branch to a python data structure."""
 
         cls = get_result_class(cls)
@@ -625,7 +625,8 @@ class MP_Node(Node):
         # Because of fix_tree, this method assumes that the depth
         # and numchild properties in the nodes can be incorrect,
         # so no helper methods are used
-        qset = cls._get_serializable_model().objects.all()
+        if not qset:
+            qset = cls._get_serializable_model().objects.all()
         if parent:
             qset = qset.filter(path__startswith=parent.path)
         ret, lnk = [], {}
@@ -652,10 +653,11 @@ class MP_Node(Node):
                 ret.append(newobj)
             else:
                 parentpath = cls._get_basepath(path, depth - 1)
-                parentobj = lnk[parentpath]
-                if 'children' not in parentobj:
-                    parentobj['children'] = []
-                parentobj['children'].append(newobj)
+                parentobj = lnk.get(parentpath)
+                if parentobj:
+                    if 'children' not in parentobj:
+                        parentobj['children'] = []
+                    parentobj['children'].append(newobj)
             lnk[path] = newobj
         return ret
 
@@ -879,7 +881,7 @@ class MP_Node(Node):
         )
 
     @classmethod
-    def get_tree(cls, parent=None):
+    def get_tree(cls, parent=None, qset=None):
         """
         :returns:
 
@@ -888,12 +890,14 @@ class MP_Node(Node):
         """
         cls = get_result_class(cls)
 
+        qset = cls.objects.all() & qset if qset else cls.objects.all()
+
         if parent is None:
             # return the entire tree
-            return cls.objects.all()
+            return qset
         if parent.is_leaf():
-            return cls.objects.filter(pk=parent.pk)
-        return cls.objects.filter(
+            return qset.filter(pk=parent.pk)
+        return qset.filter(
             path__startswith=parent.path,
             depth__gte=parent.depth
         ).order_by(

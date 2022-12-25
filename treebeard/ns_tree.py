@@ -553,12 +553,14 @@ class NS_Node(Node):
         return self.get_parent(True).get_children()
 
     @classmethod
-    def dump_bulk(cls, parent=None, keep_ids=True):
+    def dump_bulk(cls, parent=None, keep_ids=True, qset=None):
         """Dumps a tree branch to a python data structure."""
-        qset = cls._get_serializable_model().get_tree(parent)
+        tree_qset = cls._get_serializable_model().get_tree(parent)
+        if qset:
+            tree_qset = tree_qset & qset
         ret, lnk = [], {}
         pk_field = cls._meta.pk.attname
-        for pyobj in qset:
+        for pyobj in tree_qset:
             serobj = serializers.serialize('python', [pyobj])[0]
             # django's serializer stores the attributes in 'fields'
             fields = serobj['fields']
@@ -581,15 +583,16 @@ class NS_Node(Node):
                 ret.append(newobj)
             else:
                 parentobj = pyobj.get_parent()
-                parentser = lnk[parentobj.pk]
-                if 'children' not in parentser:
-                    parentser['children'] = []
-                parentser['children'].append(newobj)
+                parentser = lnk.get(parentobj.pk)
+                if parentser:
+                    if 'children' not in parentser:
+                        parentser['children'] = []
+                    parentser['children'].append(newobj)
             lnk[pyobj.pk] = newobj
         return ret
 
     @classmethod
-    def get_tree(cls, parent=None):
+    def get_tree(cls, parent=None, qset=None):
         """
         :returns:
 
@@ -598,12 +601,14 @@ class NS_Node(Node):
         """
         cls = get_result_class(cls)
 
+        qset = cls.objects.all() & qset if qset else cls.objects.all()
+
         if parent is None:
             # return the entire tree
-            return cls.objects.all()
+            return qset
         if parent.is_leaf():
-            return cls.objects.filter(pk=parent.pk)
-        return cls.objects.filter(
+            return qset.filter(pk=parent.pk)
+        return qset.filter(
             tree_id=parent.tree_id,
             lft__range=(parent.lft, parent.rgt - 1))
 

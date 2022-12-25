@@ -161,7 +161,7 @@ class AL_Node(Node):
         return self.pk in [obj.pk for obj in node.get_descendants()]
 
     @classmethod
-    def dump_bulk(cls, parent=None, keep_ids=True):
+    def dump_bulk(cls, parent=None, keep_ids=True, qset=None):
         """Dumps a tree branch to a python data structure."""
 
         serializable_cls = cls._get_serializable_model()
@@ -172,7 +172,7 @@ class AL_Node(Node):
             parent = serializable_cls.objects.get(pk=parent.pk)
 
         # a list of nodes: not really a queryset, but it works
-        objs = serializable_cls.get_tree(parent)
+        objs = serializable_cls.get_tree(parent, qset)
 
         ret, lnk = [], {}
         pk_field = cls._meta.pk.attname
@@ -197,10 +197,11 @@ class AL_Node(Node):
                (parent and depth == parent.get_depth()):
                 ret.append(newobj)
             else:
-                parentobj = lnk[node.parent_id]
-                if 'children' not in parentobj:
-                    parentobj['children'] = []
-                parentobj['children'].append(newobj)
+                parentobj = lnk.get(node.parent_id)
+                if parentobj:
+                    if 'children' not in parentobj:
+                        parentobj['children'] = []
+                    parentobj['children'].append(newobj)
             lnk[node.pk] = newobj
         return ret
 
@@ -233,18 +234,20 @@ class AL_Node(Node):
         return newobj
 
     @classmethod
-    def _get_tree_recursively(cls, results, parent, depth):
+    def _get_tree_recursively(cls, results, parent, depth, qset=None):
         if parent:
             nodes = parent.get_children()
         else:
             nodes = cls.get_root_nodes()
+        if qset:
+            nodes = nodes & qset
         for node in nodes:
             node._cached_depth = depth
             results.append(node)
             cls._get_tree_recursively(results, node, depth + 1)
 
     @classmethod
-    def get_tree(cls, parent=None):
+    def get_tree(cls, parent=None, qset=None):
         """
         :returns: A list of nodes ordered as DFS, including the parent. If
                   no parent is given, the entire tree is returned.
@@ -255,7 +258,7 @@ class AL_Node(Node):
         else:
             depth = 1
             results = []
-        cls._get_tree_recursively(results, parent, depth)
+        cls._get_tree_recursively(results, parent, depth, qset)
         return results
 
     def get_descendants(self):

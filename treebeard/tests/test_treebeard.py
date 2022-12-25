@@ -267,6 +267,23 @@ class TestClassMethods(TestNonEmptyTree):
         assert got == UNCHANGED
         assert all([type(o) == model for o in nodes])
 
+    @pytest.mark.skip(reason="Don't know how to have consistent expected result for AL vs MP/NS trees")
+    def test_get_tree_qset(self, model):
+        nodes = model.get_tree(qset=model.objects.filter(desc__in=["1", "3", "4", "41", "231"]),)
+        got = [(o.desc, o.get_depth(), o.get_children_count()) for o in nodes]
+        # "231" matches the queryset, but its parent doesn't.
+        # For AL tree, we don't get to 231 if its parent doesn't match the queryset.
+        # For MP/NS trees, we're able to get all nodes matching the queryset. Not sure how to remove them in
+        # efficient way if their ancestors don't all match the queryset.
+        expected = [
+            ("1", 1, 0),
+            ("3", 1, 0),
+            ("4", 1, 1),
+            ("41", 2, 0),
+        ]
+        assert got == expected
+        assert all([type(o) == model for o in nodes])
+
     def test_dump_bulk_all(self, model):
         assert model.dump_bulk(keep_ids=False) == BASE_DATA
 
@@ -394,6 +411,55 @@ class TestClassMethods(TestNonEmptyTree):
         related_model.load_bulk(related_data)
         got = related_model.dump_bulk(keep_ids=False)
         assert got == related_data
+
+    def test_load_and_dump_bulk_with_fk_and_qset(self, related_model):
+        # https://bitbucket.org/tabo/django-treebeard/issue/48/
+        related_model.objects.all().delete()
+        related, created = models.RelatedModel.objects.get_or_create(
+            desc="Test %s" % related_model.__name__
+        )
+
+        related_data = [
+            {"data": {"desc": "1", "related": related.pk}},
+            {
+                "data": {"desc": "2", "related": related.pk},
+                "children": [
+                    {"data": {"desc": "21", "related": related.pk}},
+                    {"data": {"desc": "22", "related": related.pk}},
+                    {
+                        "data": {"desc": "23", "related": related.pk},
+                        "children": [
+                            {"data": {"desc": "231", "related": related.pk}},
+                        ],
+                    },
+                    {"data": {"desc": "24", "related": related.pk}},
+                ],
+            },
+            {"data": {"desc": "3", "related": related.pk}},
+            {
+                "data": {"desc": "4", "related": related.pk},
+                "children": [
+                    {"data": {"desc": "41", "related": related.pk}},
+                ],
+            },
+        ]
+        related_model.load_bulk(related_data)
+        expected_dump_bulk = [
+            {"data": {"desc": "1", "related": related.pk}},
+            {"data": {"desc": "3", "related": related.pk}},
+            {
+                "data": {"desc": "4", "related": related.pk},
+                "children": [
+                    {"data": {"desc": "41", "related": related.pk}},
+                ],
+            },
+
+        ]
+        got = related_model.dump_bulk(
+            keep_ids=False,
+            qset=related_model.objects.filter(desc__in=["1", "3", "4", "41", "231"]),
+        )
+        assert got == expected_dump_bulk
 
     def test_get_root_nodes(self, model):
         got = model.get_root_nodes()
